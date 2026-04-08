@@ -25,7 +25,7 @@ async def dummy_login(
         token=await DummyLoginUseCase(UserRepository(session)).execute(body.role)
     except ValueError as e:
         raise HTTPException(400, detail={"error": {"code": "INVALID_REQUEST", "message": str(e)}})
-    return TokenSchema(token)
+    return TokenSchema(token=token)
 
 @router.post("/login", response_model=TokenSchema)
 async def login(
@@ -42,7 +42,7 @@ async def login(
             status_code=401,
             detail={"error": {"code": "UNAUTHORIZED", "message": "invalid credentials"}}
         )
-    return TokenSchema(token)
+    return TokenSchema(token=token)
 
 @router.post("/register", response_model=UserSchema, status_code=201)
 async def register(
@@ -58,3 +58,4 @@ async def register(
     except ValueError as e:
         raise HTTPException(400, detail={"error": {"code": "INVALID_REQUEST", "message": str(e)}})
     return UserSchema(id=str(user.id), email=user.email, role=user.role)
+

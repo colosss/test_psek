@@ -22,7 +22,7 @@ class UserRepository(AbstractUserRepository):
         return user_db_to_domain(u) if u else None
     
     async def create(self, email: str, role: str, hashed_password: Optional[str])->User:
-        u=UserModel(id=uuid.uuid4, email=email, role=role,hashed_password=hashed_password)
+        u=UserModel(id=uuid.uuid4(), email=email, role=role,hashed_password=hashed_password)
         self.session.add(u)
         await self.session.commit()
         await self.session.refresh(u)
@@ -37,5 +37,4 @@ class UserRepository(AbstractUserRepository):
         await self.session.commit()
         await self.session.refresh(u)
         return user_db_to_domain(u)
-    
     
