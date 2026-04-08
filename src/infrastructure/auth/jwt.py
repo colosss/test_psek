@@ -4,6 +4,7 @@ from src.config.settings import settings
 
 DUMMY_ADMIN_UUID = "00000000-0000-0000-0000-000000000001"
 DUMMY_USER_UUID = "00000000-0000-0000-0000-000000000002"
+DUMMY_BANNED_USER_UUID = "00000000-0000-0000-0000-000000000003"
 
 def create_token(user_id: str, role: str)->str:
     expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
