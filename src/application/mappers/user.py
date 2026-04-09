@@ -14,5 +14,5 @@ def user_db_to_domain(u: UserDb)->UserDomain:
         id=u.id,
         email=u.email,
         role=u.role,
-        hashed_password=u.hashed_password
+        hashed_password=u.hashed_password,
     )

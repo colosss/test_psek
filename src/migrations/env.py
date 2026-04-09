@@ -8,7 +8,7 @@ from alembic import context
 from src.infrastructure.database.base import Base
 from src.config.settings import settings
 
-DATABASE_URL=settings.database_url()
+DATABASE_URL=settings.database_url
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

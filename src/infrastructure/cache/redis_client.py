@@ -13,6 +13,3 @@ async def get_redis()-> aioredis.Redis:
             encoding="utf-8", decode_responses=True,
         )
     return _redis
-async def invalidate_slots_cache(room_id: UUID, slot_date: date_type) -> None:
-    redis = await get_redis()
-    await redis.delete(f"slots:{room_id}:{slot_date.isoformat()}")

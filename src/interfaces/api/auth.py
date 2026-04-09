@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from src.infrastructure.database.db_helper import db_helper
 from src.application.dto.auth import (
     UserSchema,
@@ -12,7 +13,9 @@ from src.application.use_case.auth import (
     LoginUseCase,
     RegisterUseCase,
     DummyLoginUseCase,
+    LogoutUseCase,
 )
+from src.interfaces.api.dependencies import get_current_user, bearer
 
 router=APIRouter(tags=["Auth"])
 
@@ -59,3 +62,11 @@ async def register(
         raise HTTPException(400, detail={"error": {"code": "INVALID_REQUEST", "message": str(e)}})
     return UserSchema(id=str(user.id), email=user.email, role=user.role)
 
+@router.post("/logout")
+async def logout(
+    current_user: dict=Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials=Depends(bearer)
+):
+    token=credentials.credentials
+    await LogoutUseCase().execute(token=token, user_id=current_user["user_id"])
+    return {"message": "logged out"}

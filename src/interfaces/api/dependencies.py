@@ -18,7 +18,7 @@ async def get_current_user(
     
     token=credentials.credentials
     user_id=payload["user_id"]
-    redis=get_redis()
+    redis=await get_redis()
     if await redis.exists(f"blacklist:token:{token}"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -40,19 +40,14 @@ async def get_current_user(
     
     return{"user_id": payload["user_id"], "role": payload["role"]}
 
-    
-async def require_admin(current_user: dict=Depends(get_current_user))->dict:
-    if current_user["role"]!="admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "FORBIDDEN", "message": "admin role required"}},
-        )
-    return current_user
 
-async def require_user(current_user: dict=Depends(get_current_user))->dict:
-    if current_user["role"]!="user":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"error": {"code": "FORBIDDEN", "message": "user role required"}},
-        )
-    return current_user
+def require_role(*roles: str)->dict:
+    async def checker(current_user: dict=Depends(get_current_user))->dict:
+        if current_user["role"] not in roles:
+            role=current_user["role"]
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": {"code": "FORBIDDEN", "message": f"{role} role required"}},
+            )
+        return current_user
+    return checker
