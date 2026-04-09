@@ -1,10 +1,50 @@
-from src.infrastructure.auth.jwt import create_token, DUMMY_ADMIN_UUID, DUMMY_USER_UUID
+from src.infrastructure.auth.jwt import (
+    create_access_token,
+    create_refresh_token,
+    DUMMY_ADMIN_UUID, 
+    DUMMY_USER_UUID
+)
 from src.core.repositories import AbstractUserRepository
 from passlib.context import CryptContext
 from uuid import UUID
 from src.infrastructure.cache.redis_client import get_redis
 from src.infrastructure.auth.jwt import decode_token
 import time
+from src.application.mappers.tokens import(
+    whitelist_key,
+    blacklist_key,
+    refresh_key,
+)
+from src.config.settings import settings
+
+REFRESH_TTL_SEC = settings.REFRESH_TTL
+ACCESS_TTL_SEC = settings.ACCESS_TTL
+
+async def _revoke_old_access(redis, user_id: str, device_id: str) -> None:
+    old = await redis.get(whitelist_key(user_id, device_id))
+    if old:
+        try:
+            payload = decode_token(old)
+            remaining = payload["exp"] - int(time.time())
+            if remaining > 0:
+                await redis.set(blacklist_key(old), "1", ex=remaining)
+        except ValueError:
+            pass
+
+
+async def _issue_token_pair(redis, user_id: str, role: str, device_id: str) -> dict:
+
+    await _revoke_old_access(redis, user_id, device_id)
+
+    access = create_access_token(user_id=user_id, role=role)
+    refresh = create_refresh_token(user_id=user_id)
+
+    await redis.set(whitelist_key(user_id, device_id), access, ex=ACCESS_TTL_SEC)
+    await redis.set(refresh_key(user_id, device_id), refresh, ex=REFRESH_TTL_SEC)
+
+    return {"access_token": access, "refresh_token": refresh}
+
+
 
 pwd_context=CryptContext(schemes=["bcrypt"], deprecated="auto")
 TOKEN_TTL=600
@@ -12,35 +52,13 @@ class DummyLoginUseCase:
     def __init__(self, user_repo: AbstractUserRepository):
         self._users=user_repo
 
-    async def execute(self, role: str)->str:
+    async def execute(self, role: str, device_id: str)->str:
         if role not in ("admin", "user"):
             raise ValueError("INVALID_REQUEST: invalid role")
         uid=UUID(DUMMY_ADMIN_UUID) if role=="admin" else UUID(DUMMY_USER_UUID)
         await self._users.get_or_create_dummy(uid, role=role)
         redis=await get_redis()
-
-        old_token=await redis.get(f"whitelist:users:{str(uid)}")
-        if old_token:
-            try:
-                payload=decode_token(old_token)
-                remaining_ttl=payload["exp"]-int(time.time())
-                if remaining_ttl>0:
-                    await redis.set(
-                        f"blacklist:token:{old_token}",
-                        "1",
-                        ex=remaining_ttl
-                    )
-            except ValueError: ...
-            
-        token=create_token(user_id=str(uid), role=role)
-
-
-        await redis.set(
-            f"whitelist:users:{str(uid)}",
-            token,
-            ex=TOKEN_TTL
-        )
-        return token
+        return await _issue_token_pair(redis, str(uid), role, device_id)
     
 class RegisterUseCase:
     def __init__(self, user_repo:AbstractUserRepository):
@@ -57,7 +75,7 @@ class LoginUseCase:
     def __init__(self, user_repo: AbstractUserRepository):
         self._users=user_repo
     
-    async def execute(self, email: str, password: str)->str:
+    async def execute(self, email: str, password: str, device_id: str)->dict:
         user=await self._users.get_by_email(email)
         if not user or not user.hashed_password:
             raise ValueError("UNAUTHORIZED: invalid credentials")
@@ -65,55 +83,52 @@ class LoginUseCase:
             raise ValueError("UNAUTHORIZED: invalid credentials")
         
         redis=await get_redis()
-
-        old_token=await redis.get(f"whitelist:users:{str(user.id)}")
-        if old_token:
-            try:
-                payload=decode_token(old_token)
-                remaining_ttl=payload["exp"]-int(time.time())
-                if remaining_ttl>0:
-                    await redis.set(
-                        f"blacklist:token:{old_token}",
-                        "1",
-                        ex=remaining_ttl
-                    )
-            except ValueError: ...
-
-        token=create_token(user_id=str(user.id), role=user.role)
-
-        await redis.set(
-            f"whitelist:users:{str(user.id)}",
-            token,
-            ex=TOKEN_TTL
-        )
-        return token
+        return await _issue_token_pair(redis, str(user.id), user.role, device_id)
     
 class LogoutUseCase:
-    async def execute(self, token: str, user_id: str)->None:
+    async def execute(self, access_token: str, user_id: str, device_id: str)->None:
         redis=await get_redis()
-        payload=decode_token(token)
-        remaining_ttl=payload["exp"]-int(time.time())
-        if remaining_ttl>0:
-            await redis.set(
-                f"blacklist:token:{token}",
-                "1",
-                ex=remaining_ttl
-            )
-        await redis.delete(f"whitelist:users:{user_id}")
+        try:
+            payload=decode_token(access_token)
+            remaining_ttl=payload["exp"]-int(time.time())
+            if remaining_ttl>0:
+                await redis.set(
+                    blacklist_key(access_token),
+                    "1",
+                    ex=remaining_ttl
+                )
+        except ValueError: ...
+        await redis.delete(whitelist_key(user_id, device_id))
+        await redis.delete(refresh_key(user_id, device_id))
 
-class TokenValidationService:
-    async def if_valid(self, token: str, user_id: str)->bool:
+
+class RefreshTokenUseCase:
+    def __init__(self, user_repo: AbstractUserRepository):
+        self._users=user_repo
+    
+    async def execute(self, refresh_token: str, device_id)->dict:
+        try:
+            payload=decode_token(refresh_token)
+        except ValueError:
+            raise ValueError("UNAUTHORIZED: invalid refresh token")
+        
+        if payload.get("type")!="refresh":
+            raise ValueError("UNAUTHORIZED: wrong token type")
+        
+        user_id=payload["user_id"]
         redis=await get_redis()
         
-        in_blacklist=await redis.exists(f"blacklist:token:{token}")
-        if in_blacklist:
-            return False
+        stored=await redis.get(refresh_key(user_id, device_id))
+        if not stored:
+            raise ValueError("UNAUTHORIZED: refresh token not found or already used")
+
+        if stored!=refresh_token:
+            await redis.delete(whitelist_key(user_id, device_id))
+            await redis.delete(refresh_key(user_id, device_id))
+            raise ValueError("UNAUTHORIZED: refresh token reuse detected — session revoked")
         
-        stored_token=await redis.get(f"whitelist:users:{user_id}")
-        if not stored_token:
-            return False
+        user=await self._users.get_by_id(UUID(user_id))
+        if not user:
+            raise ValueError("UNAUTHORIZED: user not found")
         
-        if stored_token!=token:
-            return False
-        
-        return True
+        return await _issue_token_pair(redis, str(user.id), user.role, device_id)

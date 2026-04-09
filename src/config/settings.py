@@ -10,14 +10,15 @@ class Settings(BaseSettings):
     )
 
     """
-    Так как в репозитории нет .env файла,
-    поэтому прописываю значения по умолчанию,
-    чтобы сервис можно было запустить без ошибки.
-    В рельных условиях значения берутся строго из .env файла
+    Значения по умолчанию прописаны, чтобы сервис можно было запустить без .env.
+    В реальных условиях значения берутся строго из .env файла.
     """
     JWT_SECRET_KEY: str="qylI_uuIlf0xvBaB39ElGWv-ulGpQmxL8_c0c8aAiEY" #Для проверки работоспособности
     JWT_ALGORITHM: str="HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    
+    ACCESS_TTL: int =15*60
+    REFRESH_TTL: int =7*24*3600
+
     MODE: str="normal" 
 
     @property

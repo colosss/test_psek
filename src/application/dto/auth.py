@@ -1,16 +1,15 @@
 from pydantic import BaseModel, ConfigDict
-
-class TokenSchema(BaseModel):
-    token: str
+from typing import Optional
 
 class UserSchema(BaseModel):
     id: str
-    email: str
+    email: Optional[str] = None
     role: str
 
 class LoginDTO(BaseModel):
     email: str
     password: str
+    device_id: str
 
 class RegisterDTO(BaseModel):
     email: str
@@ -19,3 +18,9 @@ class RegisterDTO(BaseModel):
 
 class DummyLoginDTO(BaseModel):
     role: str
+    device_id: str
+
+class TokenPairSchema(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str="bearer"
